@@ -1,0 +1,1039 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>terraplan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg0: #0a0a0c;
+    --bg1: #0f0f12;
+    --bg2: #15151a;
+    --bg3: #1c1c21;
+    --border: #2d2d35;
+    --border-soft: #1f1f25;
+    --text: #f0f0f2;
+    --text-dim: #8b8b95;
+    --text-faint: #5a5a63;
+    --accent: #00ff9d;
+    --accent-dim: rgba(0,255,157,0.12);
+
+    --act-create:  #22c55e;
+    --act-update:  #f59e0b;
+    --act-delete:  #ef4444;
+    --act-replace: #a855f7;
+    --act-noop:    #6b7280;
+    --act-read:    #3b82f6;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg0);
+    color: var(--text);
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow: hidden;
+  }
+
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
+  input, textarea { font: inherit; color: inherit; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a3a44; }
+
+  /* layout */
+  .app { display: grid; grid-template-rows: 48px 1fr; height: 100vh; }
+  .topbar {
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 16px;
+    background: var(--bg1);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar .logo { font-weight: 700; letter-spacing: 0.02em; color: var(--accent); }
+  .topbar .logo .dim { color: var(--text-dim); font-weight: 500; }
+  .topbar .spacer { flex: 1; }
+  .topbar .summary { display: flex; gap: 12px; align-items: center; }
+  .topbar .summary .stat { display: inline-flex; align-items: center; gap: 4px; }
+  .topbar .summary .stat .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .topbar button.action {
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    transition: all 0.15s ease;
+  }
+  .topbar button.action:hover { color: var(--accent); border-color: var(--accent); }
+
+  .panes {
+    display: grid;
+    grid-template-columns: 280px 1fr 440px;
+    height: 100%;
+    min-height: 0;
+  }
+  .pane { background: var(--bg0); overflow: auto; min-height: 0; }
+  .pane.sidebar { background: var(--bg1); border-right: 1px solid var(--border); }
+  .pane.detail { background: var(--bg1); border-left: 1px solid var(--border); }
+
+  .section { padding: 14px 16px; border-bottom: 1px solid var(--border-soft); }
+  .section h3 {
+    margin: 0 0 10px;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+
+  /* search */
+  .search {
+    width: 100%;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.15s ease;
+  }
+  .search:focus { border-color: var(--accent); }
+
+  /* action checkboxes */
+  .action-list { display: flex; flex-direction: column; gap: 4px; }
+  .action-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    user-select: none;
+  }
+  .action-item:hover { background: var(--bg2); }
+  .action-item input { accent-color: var(--accent); cursor: pointer; }
+  .action-item .swatch {
+    width: 8px; height: 8px; border-radius: 2px;
+  }
+  .action-item .label { flex: 1; text-transform: capitalize; }
+  .action-item .count { color: var(--text-faint); font-size: 11px; }
+  .action-item.disabled { opacity: 0.45; }
+
+  /* module tree / type list */
+  .module-list, .type-list { display: flex; flex-direction: column; gap: 2px; }
+  .module-item, .type-item {
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 11px;
+    transition: all 0.15s ease;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .module-item:hover, .type-item:hover { background: var(--bg2); color: var(--text); }
+  .module-item.active, .type-item.active { background: var(--accent-dim); color: var(--accent); }
+  .module-item .count, .type-item .count { float: right; color: var(--text-faint); }
+  .module-item.active .count, .type-item.active .count { color: var(--accent); opacity: 0.7; }
+
+  /* resource list */
+  .reslist {
+    display: flex; flex-direction: column;
+  }
+  .reslist-header {
+    position: sticky; top: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 16px;
+    background: var(--bg0);
+    border-bottom: 1px solid var(--border-soft);
+    color: var(--text-faint);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    z-index: 1;
+  }
+  .res-row {
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
+  .res-row:hover { background: var(--bg2); }
+  .res-row.selected { background: var(--accent-dim); }
+  .res-row.selected .address { color: var(--accent); }
+  .res-row .address {
+    font-size: 12px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .res-row .type { color: var(--text-dim); font-size: 11px; }
+
+  /* badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #0a0a0c;
+    text-align: center;
+    min-width: 64px;
+  }
+  .badge.create  { background: var(--act-create); }
+  .badge.update  { background: var(--act-update); }
+  .badge.delete  { background: var(--act-delete); color: #fff; }
+  .badge.replace { background: var(--act-replace); color: #fff; }
+  .badge.noop    { background: var(--act-noop);   color: #fff; }
+  .badge.read    { background: var(--act-read);   color: #fff; }
+
+  /* detail */
+  .detail-empty {
+    padding: 40px 20px;
+    color: var(--text-faint);
+    text-align: center;
+    font-size: 11px;
+  }
+  .detail-header { padding: 16px; border-bottom: 1px solid var(--border-soft); }
+  .detail-header .addr { font-size: 13px; font-weight: 600; word-break: break-all; }
+  .detail-header .meta { margin-top: 6px; color: var(--text-dim); font-size: 11px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .detail-header .reason {
+    margin-top: 8px; font-size: 11px;
+    padding: 6px 8px; border-radius: 4px;
+    background: rgba(168,85,247,0.08);
+    color: #c4a4f5;
+    border-left: 2px solid var(--act-replace);
+  }
+
+  .tabs { display: flex; border-bottom: 1px solid var(--border-soft); background: var(--bg1); position: sticky; top: 0; z-index: 1; }
+  .tab {
+    padding: 10px 14px;
+    color: var(--text-dim);
+    font-size: 11px;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s ease;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .tab-content { padding: 12px 16px; }
+
+  /* diff */
+  .diff-table { width: 100%; border-collapse: collapse; }
+  .diff-row {
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .diff-row td {
+    padding: 6px 8px;
+    vertical-align: top;
+    font-size: 11px;
+  }
+  .diff-row .path { color: var(--text-dim); width: 35%; word-break: break-all; }
+  .diff-row .arrow { width: 16px; color: var(--text-faint); text-align: center; }
+  .diff-row .val { font-family: inherit; color: var(--text); word-break: break-all; white-space: pre-wrap; }
+  .diff-row.added .val.after { color: var(--act-create); }
+  .diff-row.removed .val.before { color: var(--act-delete); text-decoration: line-through; opacity: 0.85; }
+  .diff-row.changed .val.before { color: var(--act-delete); text-decoration: line-through; opacity: 0.7; }
+  .diff-row.changed .val.after { color: var(--act-update); }
+  .diff-row.unknown .val.after { color: var(--act-update); font-style: italic; opacity: 0.85; }
+  .diff-row.unchanged .val { color: var(--text-faint); }
+  .diff-summary {
+    display: flex; gap: 12px;
+    margin-bottom: 10px;
+    color: var(--text-dim);
+    font-size: 11px;
+  }
+  .diff-summary .toggle {
+    margin-left: auto;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .diff-summary .toggle:hover { color: var(--accent); }
+
+  pre.raw {
+    background: var(--bg2);
+    padding: 10px 12px;
+    border-radius: 6px;
+    overflow: auto;
+    font-size: 11px;
+    margin: 0;
+    border: 1px solid var(--border-soft);
+  }
+
+  /* dropzone */
+  .dropzone-overlay {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(10,10,12,0.85);
+    z-index: 100;
+    backdrop-filter: blur(4px);
+  }
+  .dropzone-overlay.visible { display: flex; }
+  .dropzone-overlay.dragging { background: rgba(0,255,157,0.06); }
+  .dropzone-card {
+    width: min(560px, 90%);
+    padding: 48px 36px;
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    background: var(--bg1);
+    text-align: center;
+    transition: all 0.18s ease;
+  }
+  .dropzone-overlay.dragging .dropzone-card {
+    border-color: var(--accent);
+    background: rgba(0,255,157,0.04);
+  }
+  .dropzone-card h2 { margin: 0 0 8px; font-size: 18px; color: var(--accent); }
+  .dropzone-card p { margin: 0 0 20px; color: var(--text-dim); font-size: 12px; }
+  .dropzone-card .actions { display: flex; gap: 10px; justify-content: center; }
+  .dropzone-card button {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    transition: all 0.15s ease;
+  }
+  .dropzone-card button:hover { border-color: var(--accent); color: var(--accent); }
+  .dropzone-card .err {
+    margin-top: 16px;
+    color: var(--act-delete);
+    font-size: 11px;
+    min-height: 14px;
+  }
+
+  /* paste modal */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center; justify-content: center;
+    background: rgba(10,10,12,0.7);
+    z-index: 200;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.visible { display: flex; }
+  .modal {
+    width: min(720px, 90%);
+    background: var(--bg1);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .modal h2 { margin: 0 0 12px; font-size: 14px; color: var(--accent); }
+  .modal textarea {
+    width: 100%;
+    height: 280px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    color: var(--text);
+    font-size: 11px;
+    resize: vertical;
+    outline: none;
+  }
+  .modal textarea:focus { border-color: var(--accent); }
+  .modal .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; }
+  .modal button {
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    transition: all 0.15s ease;
+  }
+  .modal button:hover { color: var(--text); border-color: var(--text-dim); }
+  .modal button.primary { color: var(--accent); border-color: var(--accent); }
+  .modal button.primary:hover { background: var(--accent-dim); }
+  .modal .err { color: var(--act-delete); font-size: 11px; margin-top: 8px; min-height: 14px; }
+
+  .empty-list {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: 11px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="logo">terraplan<span class="dim">_viewer</span></div>
+    <div class="summary" id="summary"></div>
+    <div class="spacer"></div>
+    <button class="action" id="btn-load">Load plan</button>
+    <button class="action" id="btn-paste">Paste JSON</button>
+  </div>
+
+  <div class="panes">
+    <aside class="pane sidebar">
+      <div class="section">
+        <h3>Search</h3>
+        <input class="search" id="search" placeholder="filter address..." spellcheck="false">
+      </div>
+      <div class="section">
+        <h3>Actions</h3>
+        <div class="action-list" id="action-list"></div>
+      </div>
+      <div class="section">
+        <h3>Modules</h3>
+        <div class="module-list" id="module-list">
+          <div class="module-item" data-module="" style="cursor:default; color: var(--text-faint);">
+            (no plan loaded)
+          </div>
+        </div>
+      </div>
+      <div class="section">
+        <h3>Types</h3>
+        <div class="type-list" id="type-list">
+          <div class="type-item" style="cursor:default; color: var(--text-faint);">(no plan loaded)</div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="pane reslist" id="reslist-pane">
+      <div class="reslist-header">
+        <span id="reslist-count">0 resources</span>
+        <span id="reslist-meta"></span>
+      </div>
+      <div id="reslist"></div>
+    </main>
+
+    <aside class="pane detail" id="detail">
+      <div class="detail-empty">Select a resource to inspect changes.</div>
+    </aside>
+  </div>
+</div>
+
+<div class="dropzone-overlay visible" id="dropzone">
+  <div class="dropzone-card">
+    <h2>Drop a Terraform plan</h2>
+    <p>Drag a <code>plan.json</code> here, or browse / paste.<br>Generate with <code>terraform show -json tfplan &gt; plan.json</code></p>
+    <div class="actions">
+      <button id="dz-browse">Browse file</button>
+      <button id="dz-paste">Paste JSON</button>
+    </div>
+    <div class="err" id="dz-err"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="paste-modal">
+  <div class="modal">
+    <h2>Paste plan JSON</h2>
+    <textarea id="paste-input" placeholder='{"resource_changes":[...]}' spellcheck="false"></textarea>
+    <div class="err" id="paste-err"></div>
+    <div class="actions">
+      <button id="paste-cancel">Cancel</button>
+      <button class="primary" id="paste-submit">Load</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="file-input" accept=".json,application/json" style="display:none">
+
+<script>
+(() => {
+  'use strict';
+
+  const ACTIONS = ['create', 'update', 'delete', 'replace', 'no-op', 'read'];
+  const ACTION_CLASS = { 'create':'create','update':'update','delete':'delete','replace':'replace','no-op':'noop','read':'read' };
+
+  let plan = null;
+  const filters = {
+    actions: new Set(ACTIONS),
+    search: '',
+    modules: new Set(),
+    types: new Set(),
+  };
+  let selectedAddress = null;
+  let detailTab = 'diff';
+  let showUnchanged = false;
+  let derived = { actionCounts: {}, modules: [], types: [], total: 0 };
+
+  // ===== ingest =====
+
+  function canonicalAction(actions) {
+    if (!Array.isArray(actions) || actions.length === 0) return 'no-op';
+    if (actions.length === 1) return actions[0];
+    const set = new Set(actions);
+    if (set.has('create') && set.has('delete')) return 'replace';
+    return actions[0];
+  }
+
+  function ingest(text) {
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      throw new Error('Invalid JSON: ' + e.message);
+    }
+    if (!data || typeof data !== 'object') throw new Error('Not a Terraform plan: root is not an object.');
+    if (!Array.isArray(data.resource_changes)) {
+      throw new Error('Not a Terraform plan: missing resource_changes[].');
+    }
+    plan = data;
+    selectedAddress = null;
+    detailTab = 'diff';
+    derive();
+    filters.actions = new Set(ACTIONS);
+    filters.search = '';
+    filters.modules = new Set();
+    filters.types = new Set();
+    document.getElementById('search').value = '';
+    document.getElementById('dropzone').classList.remove('visible');
+    render();
+  }
+
+  function derive() {
+    const counts = Object.fromEntries(ACTIONS.map(a => [a, 0]));
+    const moduleSet = new Map();
+    const typeSet = new Map();
+    for (const rc of plan.resource_changes) {
+      const a = canonicalAction(rc.change && rc.change.actions);
+      counts[a] = (counts[a] || 0) + 1;
+      const m = rc.module_address || '';
+      moduleSet.set(m, (moduleSet.get(m) || 0) + 1);
+      const t = rc.type || '';
+      if (t) typeSet.set(t, (typeSet.get(t) || 0) + 1);
+    }
+    derived.actionCounts = counts;
+    derived.modules = [...moduleSet.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    derived.types = [...typeSet.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    derived.total = plan.resource_changes.length;
+  }
+
+  // ===== filter =====
+
+  function visibleResources() {
+    if (!plan) return [];
+    const q = filters.search.toLowerCase();
+    return plan.resource_changes.filter(rc => {
+      const a = canonicalAction(rc.change && rc.change.actions);
+      if (!filters.actions.has(a)) return false;
+      if (q && !rc.address.toLowerCase().includes(q)) return false;
+      if (filters.modules.size && !filters.modules.has(rc.module_address || '')) return false;
+      if (filters.types.size && !filters.types.has(rc.type || '')) return false;
+      return true;
+    });
+  }
+
+  // ===== diff =====
+
+  function isObject(v) { return v && typeof v === 'object' && !Array.isArray(v); }
+
+  function diffWalk(before, after, unknown, path, out) {
+    // unknown is the after_unknown shape — same nesting as after, with `true` at unknown leaves
+    const beforeIsObj = isObject(before);
+    const afterIsObj = isObject(after);
+    const beforeIsArr = Array.isArray(before);
+    const afterIsArr = Array.isArray(after);
+
+    if (unknown === true) {
+      out.push({ path, kind: 'unknown', before, after: '(known after apply)' });
+      return;
+    }
+
+    if ((beforeIsObj || afterIsObj) && !beforeIsArr && !afterIsArr) {
+      const keys = new Set([
+        ...(beforeIsObj ? Object.keys(before) : []),
+        ...(afterIsObj  ? Object.keys(after)  : []),
+        ...(isObject(unknown) ? Object.keys(unknown) : []),
+      ]);
+      for (const k of [...keys].sort()) {
+        diffWalk(
+          beforeIsObj ? before[k] : undefined,
+          afterIsObj  ? after[k]  : undefined,
+          isObject(unknown) ? unknown[k] : undefined,
+          path ? `${path}.${k}` : k,
+          out,
+        );
+      }
+      return;
+    }
+
+    if (beforeIsArr || afterIsArr) {
+      const bArr = beforeIsArr ? before : [];
+      const aArr = afterIsArr  ? after  : [];
+      const uArr = Array.isArray(unknown) ? unknown : [];
+      const len = Math.max(bArr.length, aArr.length, uArr.length);
+      if (len === 0) {
+        compareLeaf(before, after, path, out);
+        return;
+      }
+      for (let i = 0; i < len; i++) {
+        diffWalk(bArr[i], aArr[i], uArr[i], `${path}[${i}]`, out);
+      }
+      return;
+    }
+
+    compareLeaf(before, after, path, out);
+  }
+
+  function compareLeaf(before, after, path, out) {
+    const bU = before === undefined;
+    const aU = after === undefined;
+    if (bU && aU) return;
+    if (bU) { out.push({ path, kind: 'added', before: undefined, after }); return; }
+    if (aU) { out.push({ path, kind: 'removed', before, after: undefined }); return; }
+    if (deepEqual(before, after)) {
+      out.push({ path, kind: 'unchanged', before, after });
+      return;
+    }
+    out.push({ path, kind: 'changed', before, after });
+  }
+
+  function deepEqual(a, b) {
+    if (a === b) return true;
+    if (a === null || b === null) return false;
+    if (typeof a !== typeof b) return false;
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) if (!deepEqual(a[i], b[i])) return false;
+      return true;
+    }
+    if (typeof a === 'object') {
+      const ak = Object.keys(a), bk = Object.keys(b);
+      if (ak.length !== bk.length) return false;
+      for (const k of ak) if (!deepEqual(a[k], b[k])) return false;
+      return true;
+    }
+    return false;
+  }
+
+  function fmtVal(v) {
+    if (v === undefined) return '';
+    if (v === null) return 'null';
+    if (typeof v === 'string') return JSON.stringify(v);
+    if (typeof v === 'object') {
+      try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+    }
+    return String(v);
+  }
+
+  // ===== render =====
+
+  function el(tag, attrs = {}, children = []) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'class') node.className = v;
+      else if (k === 'on') for (const [evt, fn] of Object.entries(v)) node.addEventListener(evt, fn);
+      else if (k === 'data') for (const [d, dv] of Object.entries(v)) node.dataset[d] = dv;
+      else if (k === 'html') node.innerHTML = v;
+      else if (v !== undefined && v !== null) node.setAttribute(k, v);
+    }
+    for (const c of [].concat(children)) {
+      if (c == null) continue;
+      node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return node;
+  }
+
+  function render() {
+    renderSummary();
+    renderActions();
+    renderModules();
+    renderTypes();
+    renderList();
+    renderDetail();
+  }
+
+  function renderSummary() {
+    const root = document.getElementById('summary');
+    root.innerHTML = '';
+    if (!plan) return;
+    const c = derived.actionCounts;
+    const stats = [
+      { k:'create',  sym:'+', n: c.create  },
+      { k:'update',  sym:'~', n: c.update  },
+      { k:'replace', sym:'±', n: c.replace },
+      { k:'delete',  sym:'-', n: c.delete  },
+    ];
+    for (const s of stats) {
+      if (!s.n) continue;
+      const stat = el('span', { class: 'stat', title: `${s.k}: ${s.n}` }, [
+        el('span', { class: 'dot', style: `background: var(--act-${s.k});` }),
+        document.createTextNode(`${s.sym}${s.n}`),
+      ]);
+      root.appendChild(stat);
+    }
+    const total = el('span', { class: 'stat', style: 'color: var(--text-faint); margin-left: 6px;' }, [
+      `${derived.total} total`,
+    ]);
+    root.appendChild(total);
+  }
+
+  function renderActions() {
+    const root = document.getElementById('action-list');
+    root.innerHTML = '';
+    for (const a of ACTIONS) {
+      const count = derived.actionCounts[a] || 0;
+      const checked = filters.actions.has(a);
+      const item = el('label', { class: 'action-item' + (count === 0 ? ' disabled' : '') }, [
+        el('input', { type: 'checkbox', ...(checked ? {checked:''} : {}), on: {
+          change: (e) => {
+            if (e.target.checked) filters.actions.add(a);
+            else filters.actions.delete(a);
+            renderList();
+          }
+        }}),
+        el('span', { class: 'swatch', style: `background: var(--act-${ACTION_CLASS[a]});` }),
+        el('span', { class: 'label' }, [a]),
+        el('span', { class: 'count' }, [String(count)]),
+      ]);
+      root.appendChild(item);
+    }
+  }
+
+  function renderModules() {
+    const root = document.getElementById('module-list');
+    root.innerHTML = '';
+    if (!plan) {
+      root.appendChild(el('div', { class: 'module-item', style: 'cursor:default; color: var(--text-faint);' }, ['(no plan loaded)']));
+      return;
+    }
+    if (derived.modules.length === 1 && derived.modules[0][0] === '') {
+      root.appendChild(el('div', { class: 'module-item', style: 'cursor:default; color: var(--text-faint);' }, ['(root only)']));
+      return;
+    }
+    const allItem = el('div', {
+      class: 'module-item' + (filters.modules.size === 0 ? ' active' : ''),
+      on: { click: () => { filters.modules.clear(); renderModules(); renderList(); } },
+    }, [
+      'all',
+      el('span', { class: 'count' }, [String(derived.total)]),
+    ]);
+    root.appendChild(allItem);
+    for (const [m, n] of derived.modules) {
+      const label = m === '' ? '(root)' : m;
+      const active = filters.modules.has(m);
+      const item = el('div', {
+        class: 'module-item' + (active ? ' active' : ''),
+        title: label,
+        on: {
+          click: () => {
+            if (active) filters.modules.delete(m);
+            else filters.modules.add(m);
+            renderModules();
+            renderList();
+          }
+        },
+      }, [
+        label,
+        el('span', { class: 'count' }, [String(n)]),
+      ]);
+      root.appendChild(item);
+    }
+  }
+
+  function renderTypes() {
+    const root = document.getElementById('type-list');
+    root.innerHTML = '';
+    if (!plan || derived.types.length === 0) {
+      root.appendChild(el('div', { class: 'type-item', style: 'cursor:default; color: var(--text-faint);' }, [plan ? '(no types)' : '(no plan loaded)']));
+      return;
+    }
+    const allItem = el('div', {
+      class: 'type-item' + (filters.types.size === 0 ? ' active' : ''),
+      on: { click: () => { filters.types.clear(); renderTypes(); renderList(); } },
+    }, [
+      'all',
+      el('span', { class: 'count' }, [String(derived.total)]),
+    ]);
+    root.appendChild(allItem);
+    for (const [t, n] of derived.types) {
+      const active = filters.types.has(t);
+      const item = el('div', {
+        class: 'type-item' + (active ? ' active' : ''),
+        title: t,
+        on: {
+          click: () => {
+            if (active) filters.types.delete(t);
+            else filters.types.add(t);
+            renderTypes();
+            renderList();
+          }
+        },
+      }, [
+        t,
+        el('span', { class: 'count' }, [String(n)]),
+      ]);
+      root.appendChild(item);
+    }
+  }
+
+  function renderList() {
+    const root = document.getElementById('reslist');
+    const headerCount = document.getElementById('reslist-count');
+    const headerMeta = document.getElementById('reslist-meta');
+    root.innerHTML = '';
+
+    if (!plan) {
+      headerCount.textContent = '0 resources';
+      headerMeta.textContent = '';
+      return;
+    }
+
+    const list = visibleResources();
+    headerCount.textContent = `${list.length} of ${derived.total} resource${derived.total === 1 ? '' : 's'}`;
+    headerMeta.textContent = filters.search ? `"${filters.search}"` : '';
+
+    if (list.length === 0) {
+      root.appendChild(el('div', { class: 'empty-list' }, ['No resources match the current filters.']));
+      return;
+    }
+
+    for (const rc of list) {
+      const a = canonicalAction(rc.change && rc.change.actions);
+      const cls = ACTION_CLASS[a];
+      const row = el('div', {
+        class: 'res-row' + (selectedAddress === rc.address ? ' selected' : ''),
+        title: rc.address,
+        on: {
+          click: () => {
+            selectedAddress = rc.address;
+            detailTab = 'diff';
+            renderList();
+            renderDetail();
+          }
+        }
+      }, [
+        el('span', { class: `badge ${cls}` }, [a === 'no-op' ? 'no-op' : a]),
+        el('span', { class: 'address' }, [rc.address]),
+        el('span', { class: 'type' }, [rc.type || '']),
+      ]);
+      root.appendChild(row);
+    }
+  }
+
+  function findResource(address) {
+    if (!plan) return null;
+    return plan.resource_changes.find(rc => rc.address === address) || null;
+  }
+
+  function renderDetail() {
+    const root = document.getElementById('detail');
+    root.innerHTML = '';
+    const rc = findResource(selectedAddress);
+    if (!rc) {
+      root.appendChild(el('div', { class: 'detail-empty' }, ['Select a resource to inspect changes.']));
+      return;
+    }
+    const a = canonicalAction(rc.change && rc.change.actions);
+    const cls = ACTION_CLASS[a];
+
+    const meta = [
+      el('span', { class: `badge ${cls}` }, [a]),
+      el('span', {}, [rc.type || '']),
+    ];
+    if (rc.provider_name) meta.push(el('span', { style: 'color: var(--text-faint);' }, [`· ${rc.provider_name}`]));
+    if (rc.module_address) meta.push(el('span', { style: 'color: var(--text-faint);' }, [`· ${rc.module_address}`]));
+
+    const header = el('div', { class: 'detail-header' }, [
+      el('div', { class: 'addr' }, [rc.address]),
+      el('div', { class: 'meta' }, meta),
+    ]);
+
+    const reasons = (rc.change && rc.change.replace_paths) || null;
+    if (reasons && reasons.length) {
+      header.appendChild(el('div', { class: 'reason' }, [
+        `Replace triggered by: ${reasons.map(p => Array.isArray(p) ? p.join('.') : String(p)).join(', ')}`
+      ]));
+    } else if (rc.action_reason) {
+      header.appendChild(el('div', { class: 'reason' }, [`Reason: ${rc.action_reason}`]));
+    }
+    root.appendChild(header);
+
+    const tabs = el('div', { class: 'tabs' });
+    for (const t of ['diff','before','after','raw']) {
+      const tab = el('button', {
+        class: 'tab' + (detailTab === t ? ' active' : ''),
+        on: { click: () => { detailTab = t; renderDetail(); } },
+      }, [t === 'raw' ? 'Raw JSON' : t.charAt(0).toUpperCase() + t.slice(1)]);
+      tabs.appendChild(tab);
+    }
+    root.appendChild(tabs);
+
+    const content = el('div', { class: 'tab-content' });
+    if (detailTab === 'diff')   content.appendChild(renderDiff(rc));
+    else if (detailTab === 'before') content.appendChild(renderJsonBlock(rc.change && rc.change.before));
+    else if (detailTab === 'after')  content.appendChild(renderJsonBlock(rc.change && rc.change.after));
+    else                              content.appendChild(renderJsonBlock(rc));
+    root.appendChild(content);
+  }
+
+  function renderJsonBlock(obj) {
+    if (obj === undefined || obj === null) {
+      return el('div', { style: 'color: var(--text-faint); font-size: 11px;' }, ['(null)']);
+    }
+    return el('pre', { class: 'raw' }, [JSON.stringify(obj, null, 2)]);
+  }
+
+  function renderDiff(rc) {
+    const before = rc.change && rc.change.before;
+    const after  = rc.change && rc.change.after;
+    const unknown = rc.change && rc.change.after_unknown;
+    const out = [];
+    diffWalk(before, after, unknown, '', out);
+
+    const counts = { added:0, removed:0, changed:0, unknown:0, unchanged:0 };
+    for (const r of out) counts[r.kind]++;
+
+    const wrap = document.createDocumentFragment();
+    const summary = el('div', { class: 'diff-summary' }, [
+      el('span', { style: 'color: var(--act-create);' }, [`+${counts.added}`]),
+      el('span', { style: 'color: var(--act-update);' }, [`~${counts.changed}`]),
+      el('span', { style: 'color: var(--act-delete);' }, [`-${counts.removed}`]),
+      el('span', { style: 'color: var(--act-update);' }, [`?${counts.unknown}`]),
+      el('span', { style: 'color: var(--text-faint);' }, [`=${counts.unchanged}`]),
+      el('button', {
+        class: 'toggle',
+        on: { click: () => { showUnchanged = !showUnchanged; renderDetail(); } },
+      }, [showUnchanged ? 'hide unchanged' : 'show unchanged']),
+    ]);
+    wrap.appendChild(summary);
+
+    const visible = out.filter(r => r.kind !== 'unchanged' || showUnchanged);
+    if (visible.length === 0) {
+      wrap.appendChild(el('div', { class: 'detail-empty', style: 'padding: 24px 0;' }, [
+        out.length === 0 ? 'No attributes to compare.' : 'No changes. Click "show unchanged" to see all attributes.',
+      ]));
+      return wrap;
+    }
+
+    const table = el('table', { class: 'diff-table' });
+    for (const r of visible) {
+      const arrow = r.kind === 'added' ? '+' : r.kind === 'removed' ? '−' : r.kind === 'unchanged' ? '=' : '→';
+      const row = el('tr', { class: `diff-row ${r.kind}` }, [
+        el('td', { class: 'path' }, [r.path || '(root)']),
+        el('td', { class: 'val before' }, [fmtVal(r.before)]),
+        el('td', { class: 'arrow' }, [arrow]),
+        el('td', { class: 'val after' }, [fmtVal(r.after)]),
+      ]);
+      table.appendChild(row);
+    }
+    wrap.appendChild(table);
+    return wrap;
+  }
+
+  // ===== events =====
+
+  document.getElementById('search').addEventListener('input', (e) => {
+    filters.search = e.target.value;
+    renderList();
+  });
+
+  function showDropzone() {
+    document.getElementById('dropzone').classList.add('visible');
+  }
+
+  function showError(id, msg) {
+    const n = document.getElementById(id);
+    if (n) n.textContent = msg || '';
+  }
+
+  document.getElementById('btn-load').addEventListener('click', () => {
+    showDropzone();
+  });
+  document.getElementById('btn-paste').addEventListener('click', () => {
+    document.getElementById('paste-modal').classList.add('visible');
+    document.getElementById('paste-input').focus();
+  });
+
+  document.getElementById('dz-browse').addEventListener('click', () => {
+    document.getElementById('file-input').click();
+  });
+  document.getElementById('dz-paste').addEventListener('click', () => {
+    document.getElementById('dropzone').classList.remove('visible');
+    document.getElementById('paste-modal').classList.add('visible');
+    document.getElementById('paste-input').focus();
+  });
+
+  document.getElementById('file-input').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try {
+      const txt = await f.text();
+      ingest(txt);
+      showError('dz-err', '');
+    } catch (err) {
+      showError('dz-err', err.message);
+      showDropzone();
+    } finally {
+      e.target.value = '';
+    }
+  });
+
+  document.getElementById('paste-cancel').addEventListener('click', () => {
+    document.getElementById('paste-modal').classList.remove('visible');
+    showError('paste-err', '');
+  });
+  document.getElementById('paste-submit').addEventListener('click', () => {
+    const txt = document.getElementById('paste-input').value;
+    try {
+      ingest(txt);
+      document.getElementById('paste-modal').classList.remove('visible');
+      document.getElementById('paste-input').value = '';
+      showError('paste-err', '');
+    } catch (err) {
+      showError('paste-err', err.message);
+    }
+  });
+
+  // drag-drop on whole window
+  let dragCounter = 0;
+  window.addEventListener('dragenter', (e) => {
+    if (!e.dataTransfer || ![...(e.dataTransfer.types || [])].includes('Files')) return;
+    e.preventDefault();
+    dragCounter++;
+    showDropzone();
+    document.getElementById('dropzone').classList.add('dragging');
+  });
+  window.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer || ![...(e.dataTransfer.types || [])].includes('Files')) return;
+    e.preventDefault();
+  });
+  window.addEventListener('dragleave', (e) => {
+    dragCounter--;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      document.getElementById('dropzone').classList.remove('dragging');
+      if (plan) document.getElementById('dropzone').classList.remove('visible');
+    }
+  });
+  window.addEventListener('drop', async (e) => {
+    if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
+    e.preventDefault();
+    dragCounter = 0;
+    document.getElementById('dropzone').classList.remove('dragging');
+    const f = e.dataTransfer.files[0];
+    try {
+      const txt = await f.text();
+      ingest(txt);
+      showError('dz-err', '');
+    } catch (err) {
+      showError('dz-err', err.message);
+      showDropzone();
+    }
+  });
+
+  // esc closes modals (only if a plan is loaded for dropzone)
+  window.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const paste = document.getElementById('paste-modal');
+    if (paste.classList.contains('visible')) { paste.classList.remove('visible'); return; }
+    if (plan) document.getElementById('dropzone').classList.remove('visible');
+  });
+
+  render();
+})();
+</script>
+</body>
+</html>

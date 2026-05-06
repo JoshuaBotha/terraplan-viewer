@@ -1,0 +1,241 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.6.0",
+  "resource_changes": [
+    {
+      "address": "aws_instance.web",
+      "module_address": "",
+      "mode": "managed",
+      "type": "aws_instance",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "ami": "ami-0abcd1234",
+          "instance_type": "t3.micro",
+          "tags": { "Name": "web", "Env": "dev" },
+          "associate_public_ip_address": true
+        },
+        "after_unknown": {
+          "id": true,
+          "arn": true,
+          "private_ip": true
+        },
+        "before_sensitive": false,
+        "after_sensitive": false
+      }
+    },
+    {
+      "address": "aws_security_group.web",
+      "module_address": "",
+      "mode": "managed",
+      "type": "aws_security_group",
+      "name": "web",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "name": "web-sg",
+          "description": "web traffic",
+          "ingress": [
+            { "from_port": 80, "to_port": 80, "protocol": "tcp", "cidr_blocks": ["0.0.0.0/0"] }
+          ],
+          "tags": { "Env": "dev" }
+        },
+        "after": {
+          "name": "web-sg",
+          "description": "web and tls traffic",
+          "ingress": [
+            { "from_port": 80,  "to_port": 80,  "protocol": "tcp", "cidr_blocks": ["0.0.0.0/0"] },
+            { "from_port": 443, "to_port": 443, "protocol": "tcp", "cidr_blocks": ["0.0.0.0/0"] }
+          ],
+          "tags": { "Env": "dev", "Owner": "platform" }
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_s3_bucket.legacy",
+      "module_address": "",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "legacy",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["delete"],
+        "before": {
+          "bucket": "legacy-data-2019",
+          "acl": "private",
+          "versioning": [{ "enabled": true }]
+        },
+        "after": null,
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_db_instance.main",
+      "module_address": "",
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": {
+          "engine": "postgres",
+          "engine_version": "13.7",
+          "instance_class": "db.t3.small",
+          "allocated_storage": 20,
+          "username": "admin"
+        },
+        "after": {
+          "engine": "postgres",
+          "engine_version": "15.4",
+          "instance_class": "db.t3.medium",
+          "allocated_storage": 50,
+          "username": "admin"
+        },
+        "after_unknown": {
+          "id": true,
+          "endpoint": true,
+          "address": true
+        },
+        "replace_paths": [["engine_version"]]
+      }
+    },
+    {
+      "address": "aws_route53_record.api",
+      "module_address": "",
+      "mode": "managed",
+      "type": "aws_route53_record",
+      "name": "api",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["no-op"],
+        "before": {
+          "name": "api.example.com",
+          "type": "A",
+          "ttl": 300
+        },
+        "after": {
+          "name": "api.example.com",
+          "type": "A",
+          "ttl": 300
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "data.aws_ami.ubuntu",
+      "module_address": "",
+      "mode": "data",
+      "type": "aws_ami",
+      "name": "ubuntu",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["read"],
+        "before": null,
+        "after": {
+          "most_recent": true,
+          "owners": ["099720109477"]
+        },
+        "after_unknown": {
+          "id": true,
+          "image_id": true
+        }
+      }
+    },
+    {
+      "address": "module.network.aws_vpc.main",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_vpc",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "cidr_block": "10.0.0.0/16",
+          "enable_dns_hostnames": true,
+          "tags": { "Name": "main-vpc" }
+        },
+        "after_unknown": {
+          "id": true,
+          "arn": true,
+          "default_route_table_id": true
+        }
+      }
+    },
+    {
+      "address": "module.network.aws_subnet.public[0]",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_subnet",
+      "name": "public",
+      "index": 0,
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "cidr_block": "10.0.1.0/24",
+          "availability_zone": "us-east-1a",
+          "map_public_ip_on_launch": true
+        },
+        "after_unknown": {
+          "id": true,
+          "vpc_id": true
+        }
+      }
+    },
+    {
+      "address": "module.network.aws_subnet.public[1]",
+      "module_address": "module.network",
+      "mode": "managed",
+      "type": "aws_subnet",
+      "name": "public",
+      "index": 1,
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "cidr_block": "10.0.2.0/24",
+          "availability_zone": "us-east-1b",
+          "map_public_ip_on_launch": true
+        },
+        "after_unknown": {
+          "id": true,
+          "vpc_id": true
+        }
+      }
+    },
+    {
+      "address": "module.app.aws_lb.main",
+      "module_address": "module.app",
+      "mode": "managed",
+      "type": "aws_lb",
+      "name": "main",
+      "provider_name": "registry.terraform.io/hashicorp/aws",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "name": "app-lb",
+          "internal": false,
+          "idle_timeout": 60,
+          "tags": { "Env": "dev" }
+        },
+        "after": {
+          "name": "app-lb",
+          "internal": false,
+          "idle_timeout": 120,
+          "tags": { "Env": "dev", "Team": "platform" }
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}
