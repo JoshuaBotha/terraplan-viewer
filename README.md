@@ -1,8 +1,11 @@
-# terraplan_viewer
+# Terraplan Viewer
 
 A single-file, zero-dependency browser tool for exploring Terraform plan JSON output.
 
-![screenshot](after-load.png)
+**[Live demo → terraplan-viewer.vercel.app](https://terraplan-viewer.vercel.app)**
+
+![List view](screenshot-list.png)
+![Graph view](screenshot-graph.png)
 
 ## Usage
 
