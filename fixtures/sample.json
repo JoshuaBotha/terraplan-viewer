@@ -237,5 +237,140 @@
         "after_unknown": {}
       }
     }
-  ]
+  ],
+  "configuration": {
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_instance.web",
+          "mode": "managed",
+          "type": "aws_instance",
+          "name": "web",
+          "provider_config_key": "aws",
+          "expressions": {
+            "ami":                    { "references": ["data.aws_ami.ubuntu.id", "data.aws_ami.ubuntu"] },
+            "instance_type":          { "constant_value": "t3.micro" },
+            "vpc_security_group_ids": { "references": ["aws_security_group.web.id", "aws_security_group.web"] },
+            "subnet_id":              { "references": ["module.network.public_subnet_ids", "module.network"] }
+          }
+        },
+        {
+          "address": "aws_security_group.web",
+          "mode": "managed",
+          "type": "aws_security_group",
+          "name": "web",
+          "provider_config_key": "aws",
+          "expressions": {
+            "vpc_id": { "references": ["module.network.vpc_id", "module.network"] },
+            "name":   { "constant_value": "web-sg" }
+          }
+        },
+        {
+          "address": "aws_s3_bucket.legacy",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "legacy",
+          "provider_config_key": "aws",
+          "expressions": { "bucket": { "constant_value": "legacy-data-2019" } }
+        },
+        {
+          "address": "aws_db_instance.main",
+          "mode": "managed",
+          "type": "aws_db_instance",
+          "name": "main",
+          "provider_config_key": "aws",
+          "expressions": {
+            "engine":                 { "constant_value": "postgres" },
+            "db_subnet_group_name":   { "references": ["module.network.db_subnet_group_name", "module.network"] },
+            "vpc_security_group_ids": { "references": ["aws_security_group.web.id", "aws_security_group.web"] }
+          }
+        },
+        {
+          "address": "aws_route53_record.api",
+          "mode": "managed",
+          "type": "aws_route53_record",
+          "name": "api",
+          "provider_config_key": "aws",
+          "expressions": {
+            "name": { "constant_value": "api.example.com" },
+            "alias": [{
+              "name":    { "references": ["module.app.lb_dns_name", "module.app"] },
+              "zone_id": { "references": ["module.app.lb_zone_id", "module.app"] }
+            }]
+          }
+        },
+        {
+          "address": "data.aws_ami.ubuntu",
+          "mode": "data",
+          "type": "aws_ami",
+          "name": "ubuntu",
+          "provider_config_key": "aws",
+          "expressions": {
+            "most_recent": { "constant_value": true },
+            "owners":      { "constant_value": ["099720109477"] }
+          }
+        }
+      ],
+      "module_calls": {
+        "network": {
+          "source": "./modules/network",
+          "expressions": {},
+          "module": {
+            "resources": [
+              {
+                "address": "aws_vpc.main",
+                "mode": "managed",
+                "type": "aws_vpc",
+                "name": "main",
+                "provider_config_key": "network:aws",
+                "expressions": { "cidr_block": { "constant_value": "10.0.0.0/16" } }
+              },
+              {
+                "address": "aws_subnet.public",
+                "mode": "managed",
+                "type": "aws_subnet",
+                "name": "public",
+                "provider_config_key": "network:aws",
+                "expressions": {
+                  "vpc_id":     { "references": ["aws_vpc.main.id", "aws_vpc.main"] },
+                  "cidr_block": { "references": ["each.value.cidr"] }
+                },
+                "for_each_expression": { "references": ["var.subnets"] }
+              }
+            ],
+            "outputs": {
+              "vpc_id":               { "expression": { "references": ["aws_vpc.main.id", "aws_vpc.main"] } },
+              "public_subnet_ids":    { "expression": { "references": ["aws_subnet.public"] } },
+              "db_subnet_group_name": { "expression": { "references": ["aws_subnet.public"] } }
+            }
+          }
+        },
+        "app": {
+          "source": "./modules/app",
+          "expressions": {
+            "subnet_ids": { "references": ["module.network.public_subnet_ids", "module.network"] }
+          },
+          "module": {
+            "resources": [
+              {
+                "address": "aws_lb.main",
+                "mode": "managed",
+                "type": "aws_lb",
+                "name": "main",
+                "provider_config_key": "app:aws",
+                "expressions": {
+                  "subnets": { "references": ["module.network.public_subnet_ids", "module.network"] },
+                  "name":    { "constant_value": "app-lb" }
+                }
+              }
+            ],
+            "outputs": {
+              "lb_dns_name": { "expression": { "references": ["aws_lb.main.dns_name", "aws_lb.main"] } },
+              "lb_zone_id":  { "expression": { "references": ["aws_lb.main.zone_id", "aws_lb.main"] } }
+            }
+          }
+        }
+      }
+    }
+  }
 }

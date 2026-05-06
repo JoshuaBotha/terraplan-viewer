@@ -361,6 +361,80 @@
     color: var(--text-faint);
     font-size: 11px;
   }
+
+  /* graph view */
+  .topbar button.action[disabled] { opacity: 0.4; cursor: not-allowed; }
+  .topbar button.action[disabled]:hover { color: var(--text-dim); border-color: var(--border); }
+
+  .graph-view { display: none; height: 100%; min-height: 0; flex-direction: column; }
+  .graph-view.visible { display: flex; }
+  .panes.hidden { display: none; }
+
+  .graph-toolbar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 16px;
+    background: var(--bg1);
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .graph-toolbar .graph-hint {
+    color: var(--text-faint);
+    font-size: 11px;
+    margin-left: auto;
+  }
+  .graph-toolbar .legend {
+    display: inline-flex; gap: 8px; align-items: center;
+    color: var(--text-faint);
+    font-size: 11px;
+  }
+  .graph-toolbar .legend .swatch {
+    width: 8px; height: 8px; border-radius: 2px; display: inline-block;
+  }
+
+  .graph-canvas {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    background: var(--bg0);
+    cursor: grab;
+  }
+  .graph-canvas.panning { cursor: grabbing; }
+  .graph-canvas svg { width: 100%; height: 100%; display: block; user-select: none; }
+  .graph-empty {
+    padding: 40px 20px;
+    color: var(--text-faint);
+    text-align: center;
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  .graph-empty code {
+    background: var(--bg2);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--text);
+  }
+
+  .gnode { cursor: pointer; transition: opacity 0.15s ease; }
+  .gnode rect {
+    stroke-width: 1;
+    transition: stroke-width 0.1s ease, stroke 0.1s ease;
+  }
+  .gnode text { font: 500 11px 'JetBrains Mono', monospace; fill: var(--text); pointer-events: none; }
+  .gnode .gmod { fill: var(--text-faint); }
+  .gnode:hover rect { stroke-width: 2; }
+  .gnode.selected rect { stroke: var(--accent); stroke-width: 2; }
+  .gnode.dim { opacity: 0.18; }
+
+  .gedge {
+    stroke: var(--border);
+    stroke-width: 1;
+    fill: none;
+    opacity: 0.55;
+    transition: opacity 0.1s ease, stroke 0.1s ease;
+  }
+  .gedge.dim { opacity: 0.08; }
+  .gedge.in  { stroke: var(--act-update); opacity: 1; stroke-width: 1.5; }
+  .gedge.out { stroke: var(--act-create); opacity: 1; stroke-width: 1.5; }
+  .gedge.cyclic { stroke-dasharray: 4 4; stroke: var(--act-replace); }
 </style>
 </head>
 <body>
@@ -368,6 +442,7 @@
   <div class="topbar">
     <div class="logo">terraplan<span class="dim">_viewer</span></div>
     <div class="summary" id="summary"></div>
+    <button class="action" id="btn-view" title="Toggle graph view" disabled>Graph</button>
     <div class="spacer"></div>
     <button class="action" id="btn-load">Load plan</button>
     <button class="action" id="btn-paste">Paste JSON</button>
@@ -410,6 +485,19 @@
     <aside class="pane detail" id="detail">
       <div class="detail-empty">Select a resource to inspect changes.</div>
     </aside>
+  </div>
+
+  <div class="graph-view" id="graph-view">
+    <div class="graph-toolbar">
+      <button class="action" id="g-fit">Fit</button>
+      <button class="action" id="g-reset">Reset zoom</button>
+      <span class="legend">
+        <span class="swatch" style="background: var(--act-update);"></span>inbound
+        <span class="swatch" style="background: var(--act-create); margin-left: 6px;"></span>outbound
+      </span>
+      <span class="graph-hint" id="g-hint"></span>
+    </div>
+    <div class="graph-canvas" id="graph-canvas"></div>
   </div>
 </div>
 
@@ -458,6 +546,11 @@
   let showUnchanged = false;
   let derived = { actionCounts: {}, modules: [], types: [], total: 0 };
 
+  let view = 'list';
+  let graphTransform = { x: 0, y: 0, k: 1 };
+  let graphLayout = null;
+  let graphHover = null;
+
   // ===== ingest =====
 
   function canonicalAction(actions) {
@@ -489,7 +582,17 @@
     filters.types = new Set();
     document.getElementById('search').value = '';
     document.getElementById('dropzone').classList.remove('visible');
+    graphLayout = null;
+    graphTransform = { x: 0, y: 0, k: 1 };
+    graphHover = null;
+    document.getElementById('btn-view').disabled = false;
     render();
+    if (view === 'graph') renderGraph();
+  }
+
+  function onFiltersChanged() {
+    renderList();
+    if (view === 'graph') applyGraphFilters();
   }
 
   function derive() {
@@ -681,7 +784,7 @@
           change: (e) => {
             if (e.target.checked) filters.actions.add(a);
             else filters.actions.delete(a);
-            renderList();
+            onFiltersChanged();
           }
         }}),
         el('span', { class: 'swatch', style: `background: var(--act-${ACTION_CLASS[a]});` }),
@@ -705,7 +808,7 @@
     }
     const allItem = el('div', {
       class: 'module-item' + (filters.modules.size === 0 ? ' active' : ''),
-      on: { click: () => { filters.modules.clear(); renderModules(); renderList(); } },
+      on: { click: () => { filters.modules.clear(); renderModules(); onFiltersChanged(); } },
     }, [
       'all',
       el('span', { class: 'count' }, [String(derived.total)]),
@@ -722,7 +825,7 @@
             if (active) filters.modules.delete(m);
             else filters.modules.add(m);
             renderModules();
-            renderList();
+            onFiltersChanged();
           }
         },
       }, [
@@ -742,7 +845,7 @@
     }
     const allItem = el('div', {
       class: 'type-item' + (filters.types.size === 0 ? ' active' : ''),
-      on: { click: () => { filters.types.clear(); renderTypes(); renderList(); } },
+      on: { click: () => { filters.types.clear(); renderTypes(); onFiltersChanged(); } },
     }, [
       'all',
       el('span', { class: 'count' }, [String(derived.total)]),
@@ -758,7 +861,7 @@
             if (active) filters.types.delete(t);
             else filters.types.add(t);
             renderTypes();
-            renderList();
+            onFiltersChanged();
           }
         },
       }, [
@@ -927,7 +1030,7 @@
 
   document.getElementById('search').addEventListener('input', (e) => {
     filters.search = e.target.value;
-    renderList();
+    onFiltersChanged();
   });
 
   function showDropzone() {
@@ -1030,6 +1133,607 @@
     const paste = document.getElementById('paste-modal');
     if (paste.classList.contains('visible')) { paste.classList.remove('visible'); return; }
     if (plan) document.getElementById('dropzone').classList.remove('visible');
+  });
+
+  // ===== graph =====
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function svgEl(tag, attrs = {}, children = []) {
+    const n = document.createElementNS(SVG_NS, tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v == null) continue;
+      if (k === 'on') for (const [evt, fn] of Object.entries(v)) n.addEventListener(evt, fn);
+      else n.setAttribute(k, v);
+    }
+    for (const c of [].concat(children)) {
+      if (c == null) continue;
+      n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    }
+    return n;
+  }
+
+  function applyView() {
+    const panes = document.querySelector('.panes');
+    const gv = document.getElementById('graph-view');
+    const btn = document.getElementById('btn-view');
+    panes.classList.toggle('hidden', view === 'graph');
+    gv.classList.toggle('visible', view === 'graph');
+    btn.textContent = view === 'graph' ? 'List' : 'Graph';
+    if (view === 'graph') renderGraph();
+  }
+
+  // ----- dependency extraction -----
+
+  function tokenizeRef(ref) {
+    const out = []; let buf = ''; let depth = 0;
+    for (const ch of ref) {
+      if (ch === '[') { depth++; buf += ch; }
+      else if (ch === ']') { depth--; buf += ch; }
+      else if (ch === '.' && depth === 0) { if (buf) out.push(buf); buf = ''; }
+      else buf += ch;
+    }
+    if (buf) out.push(buf);
+    return out;
+  }
+  function stripIndex(s) { return s.replace(/\[[^\]]+\]$/, ''); }
+
+  function collectRefs(node, acc) {
+    if (!node || typeof node !== 'object') return acc;
+    if (Array.isArray(node.references)) acc.push(...node.references);
+    if (Array.isArray(node.depends_on)) acc.push(...node.depends_on);
+    for (const v of Object.values(node)) {
+      if (v && typeof v === 'object') collectRefs(v, acc);
+    }
+    return acc;
+  }
+
+  // Resolve a reference string into one or more candidate qualified base addresses.
+  // modPath is the dotted module path of the resource holding this ref (e.g. "module.network" or "").
+  // Returns an array of qualified bases (without count/for_each indices).
+  function resolveRef(ref, modPath, rootCfg, depth) {
+    if (depth > 8) return [];
+    const toks = tokenizeRef(ref);
+    if (toks.length === 0) return [];
+    const root = toks[0];
+    if (root === 'var' || root === 'local' || root === 'each' || root === 'count'
+        || root === 'self' || root === 'path' || root === 'terraform') return [];
+
+    if (root === 'module') {
+      // module.X references are resolved from the root scope (terraform module
+      // references are absolute paths from the root).
+      let i = 0;
+      let prefix = '';
+      let modCfg = rootCfg;
+      while (toks[i] === 'module') {
+        if (i + 1 >= toks.length) return [];
+        const name = stripIndex(toks[i + 1]);
+        const nextCall = modCfg && modCfg.module_calls ? modCfg.module_calls[name] : null;
+        if (!nextCall) return [];
+        prefix = prefix ? `${prefix}.module.${name}` : `module.${name}`;
+        modCfg = nextCall.module || null;
+        i += 2;
+      }
+      const remain = toks.length - i;
+      if (remain === 0) return [];
+      // Resource ref inside that module: type.name[.attr]
+      if (remain >= 2) {
+        const type = toks[i], name = stripIndex(toks[i + 1]);
+        // data sources nested: module.foo.data.aws_x.y
+        if (type === 'data' && remain >= 3) {
+          const dtype = toks[i + 1], dname = stripIndex(toks[i + 2]);
+          return [`${prefix}.data.${dtype}.${dname}`];
+        }
+        return [`${prefix}.${type}.${name}`];
+      }
+      // Single remaining token: module output. Follow it.
+      const outName = stripIndex(toks[i]);
+      const outputs = modCfg && modCfg.outputs;
+      const outDef = outputs && outputs[outName];
+      const outRefs = outDef && outDef.expression && Array.isArray(outDef.expression.references)
+        ? outDef.expression.references : [];
+      const out = [];
+      for (const r of outRefs) {
+        for (const q of resolveRef(r, prefix, rootCfg, depth + 1)) out.push(q);
+      }
+      return out;
+    }
+
+    if (root === 'data') {
+      if (toks.length < 3) return [];
+      const type = toks[1], name = stripIndex(toks[2]);
+      const qual = modPath ? `${modPath}.data.${type}.${name}` : `data.${type}.${name}`;
+      return [qual];
+    }
+
+    if (toks.length < 2) return [];
+    const type = toks[0], name = stripIndex(toks[1]);
+    const qual = modPath ? `${modPath}.${type}.${name}` : `${type}.${name}`;
+    return [qual];
+  }
+
+  function expandToActual(qualBase, presentBuckets) {
+    const arr = presentBuckets.get(qualBase);
+    return arr ? arr : [];
+  }
+
+  function buildGraphData() {
+    const cfg = plan && plan.configuration && plan.configuration.root_module;
+    if (!cfg) return null;
+
+    const present = new Set(plan.resource_changes.map(rc => rc.address));
+    // Bucket by qualified base (strip trailing [..] index)
+    const presentBuckets = new Map();
+    for (const a of present) {
+      const base = stripIndex(a);
+      if (!presentBuckets.has(base)) presentBuckets.set(base, []);
+      presentBuckets.get(base).push(a);
+    }
+
+    const adj = new Map(); // a -> Set of b (a depends on b)
+    function ensure(a) { if (!adj.has(a)) adj.set(a, new Set()); return adj.get(a); }
+
+    function walk(modPath, modCfg) {
+      if (!modCfg) return;
+      const resources = modCfg.resources || [];
+      for (const r of resources) {
+        const short = `${r.type}.${r.name}`;
+        const qualBase = modPath ? `${modPath}.${r.mode === 'data' ? 'data.' : ''}${short}`
+                                 : `${r.mode === 'data' ? 'data.' : ''}${short}`;
+        const refs = collectRefs(r, []);
+        // Also pick up for_each / count expressions
+        if (r.for_each_expression) collectRefs(r.for_each_expression, refs);
+        if (r.count_expression) collectRefs(r.count_expression, refs);
+        const sources = expandToActual(qualBase, presentBuckets);
+        if (sources.length === 0) continue;
+        for (const ref of refs) {
+          const targets = resolveRef(ref, modPath, cfg, 0);
+          for (const tBase of targets) {
+            const tActuals = expandToActual(tBase, presentBuckets);
+            for (const t of tActuals) {
+              for (const s of sources) {
+                if (s === t) continue;
+                ensure(s).add(t);
+              }
+            }
+          }
+        }
+      }
+      for (const [name, mc] of Object.entries(modCfg.module_calls || {})) {
+        const childPath = modPath ? `${modPath}.module.${name}` : `module.${name}`;
+        walk(childPath, mc.module || null);
+      }
+    }
+    walk('', cfg);
+
+    return { adj, present };
+  }
+
+  // ----- layering: Tarjan SCC + longest-path + barycenter -----
+
+  function tarjanSCC(nodes, outEdges) {
+    const index = new Map(), low = new Map(), onStack = new Set(), stack = [];
+    const sccs = [];
+    let idx = 0;
+    function strong(v) {
+      index.set(v, idx); low.set(v, idx); idx++;
+      stack.push(v); onStack.add(v);
+      for (const w of outEdges.get(v) || []) {
+        if (!index.has(w)) { strong(w); low.set(v, Math.min(low.get(v), low.get(w))); }
+        else if (onStack.has(w)) low.set(v, Math.min(low.get(v), index.get(w)));
+      }
+      if (low.get(v) === index.get(v)) {
+        const comp = [];
+        let w;
+        do { w = stack.pop(); onStack.delete(w); comp.push(w); } while (w !== v);
+        sccs.push(comp);
+      }
+    }
+    for (const n of nodes) if (!index.has(n)) strong(n);
+    return sccs;
+  }
+
+  function computeLayout() {
+    const data = buildGraphData();
+    if (!data) return null;
+    const { adj, present } = data;
+
+    // node set = all present resource addresses (so orphans are visible too)
+    const nodes = [...present];
+
+    // Build outEdges (deps) restricted to nodes
+    const outEdges = new Map();
+    for (const n of nodes) outEdges.set(n, new Set());
+    for (const [a, deps] of adj) {
+      if (!outEdges.has(a)) continue;
+      for (const b of deps) if (outEdges.has(b)) outEdges.get(a).add(b);
+    }
+
+    // SCCs (Tarjan returns components in reverse topo order)
+    const sccs = tarjanSCC(nodes, outEdges);
+    const sccOf = new Map();
+    sccs.forEach((comp, i) => comp.forEach(n => sccOf.set(n, i)));
+
+    // Cyclic SCCs (size > 1) — collect cyclic edge set
+    const cyclicEdges = new Set();
+    for (const comp of sccs) {
+      if (comp.length < 2) continue;
+      const inComp = new Set(comp);
+      for (const v of comp) for (const w of outEdges.get(v)) {
+        if (inComp.has(w)) cyclicEdges.add(`${v} ${w}`);
+      }
+    }
+    const cycleCount = sccs.filter(c => c.length > 1).length;
+
+    // Condensed DAG
+    const sccDeps = new Map();   // sccId -> Set<sccId>
+    for (let i = 0; i < sccs.length; i++) sccDeps.set(i, new Set());
+    for (const [v, ws] of outEdges) {
+      const sv = sccOf.get(v);
+      for (const w of ws) {
+        const sw = sccOf.get(w);
+        if (sv !== sw) sccDeps.get(sv).add(sw);
+      }
+    }
+
+    // Longest-path layering: layer 0 = leaves (no deps); higher = dependents.
+    // We want deepest deps at top → leaves at top, dependents at bottom.
+    // Definition: layer(scc) = 1 + max(layer(dep)) else 0. Then deps appear ABOVE dependents.
+    const sccLayer = new Map();
+    function L(s) {
+      if (sccLayer.has(s)) return sccLayer.get(s);
+      let m = 0;
+      for (const d of sccDeps.get(s)) m = Math.max(m, L(d) + 1);
+      sccLayer.set(s, m);
+      return m;
+    }
+    for (let i = 0; i < sccs.length; i++) L(i);
+
+    // Per-node layer. layer 0 = top = leaves (no deps). Higher layer = dependents below.
+    const maxLayer = Math.max(0, ...sccLayer.values());
+    const nodeLayer = new Map();
+    for (const n of nodes) nodeLayer.set(n, sccLayer.get(sccOf.get(n)));
+
+    // Layers as rows of node ids
+    const layers = [];
+    for (let i = 0; i <= maxLayer; i++) layers.push([]);
+    for (const n of nodes) layers[nodeLayer.get(n)].push(n);
+    for (const row of layers) row.sort();
+
+    // Pre-build parent/child indices (within the layered graph; deps go upward)
+    const parents = new Map(); // node -> nodes in the layer above (its deps)
+    const children = new Map(); // node -> nodes in the layer below (its dependents)
+    for (const n of nodes) { parents.set(n, []); children.set(n, []); }
+    for (const [v, ws] of outEdges) {
+      for (const w of ws) {
+        // v depends on w. w should be ABOVE v (lower layer index).
+        if (nodeLayer.get(w) < nodeLayer.get(v)) {
+          parents.get(v).push(w);
+          children.get(w).push(v);
+        }
+      }
+    }
+
+    // Barycenter sweeps
+    function bary(node, neighbours, idxMap) {
+      if (!neighbours.length) return Infinity;
+      let s = 0; let n = 0;
+      for (const x of neighbours) {
+        if (idxMap.has(x)) { s += idxMap.get(x); n++; }
+      }
+      return n ? s / n : Infinity;
+    }
+    const SWEEPS = 4;
+    for (let s = 0; s < SWEEPS; s++) {
+      for (let i = 1; i < layers.length; i++) {
+        const above = layers[i - 1];
+        const idxMap = new Map(above.map((n, j) => [n, j]));
+        layers[i].sort((a, b) => bary(a, parents.get(a), idxMap) - bary(b, parents.get(b), idxMap));
+      }
+      for (let i = layers.length - 2; i >= 0; i--) {
+        const below = layers[i + 1];
+        const idxMap = new Map(below.map((n, j) => [n, j]));
+        layers[i].sort((a, b) => bary(a, children.get(a), idxMap) - bary(b, children.get(b), idxMap));
+      }
+    }
+
+    // Coordinates
+    const NODE_W = 230, NODE_H = 36, X_GAP = 28, Y_GAP = 56;
+    const pos = new Map();
+    let minX = 0, maxX = 0;
+    for (let i = 0; i < layers.length; i++) {
+      const row = layers[i];
+      const totalW = row.length * NODE_W + Math.max(0, row.length - 1) * X_GAP;
+      const startX = -totalW / 2;
+      for (let j = 0; j < row.length; j++) {
+        const x = startX + j * (NODE_W + X_GAP);
+        pos.set(row[j], { x, y: i * (NODE_H + Y_GAP) });
+      }
+      minX = Math.min(minX, startX);
+      maxX = Math.max(maxX, startX + totalW);
+    }
+    const width = maxX - minX;
+    const height = Math.max(NODE_H, layers.length * (NODE_H + Y_GAP) - Y_GAP);
+
+    // Edges as { from, to, cyclic }
+    const edges = [];
+    for (const [v, ws] of outEdges) {
+      for (const w of ws) {
+        edges.push({ from: v, to: w, cyclic: cyclicEdges.has(`${v} ${w}`) });
+      }
+    }
+
+    return {
+      nodes, edges, layers, pos, NODE_W, NODE_H,
+      width, height, minX, minY: 0, maxX,
+      cycleCount,
+    };
+  }
+
+  // ----- render -----
+
+  function actionClassFor(addr) {
+    const rc = findResource(addr);
+    if (!rc) return 'noop';
+    return ACTION_CLASS[canonicalAction(rc.change && rc.change.actions)] || 'noop';
+  }
+
+  function splitModulePrefix(addr) {
+    // Return [modulePrefix, resourcePart]. modulePrefix ends with '.' or is ''.
+    // Resource part = last "type.name[.idx]" — find the last occurrence of "type.name" pattern.
+    // Heuristic: split at the last ".module." marker, or first non-module token.
+    const idx = addr.lastIndexOf('.');
+    if (idx < 0) return ['', addr];
+    // Find boundary between module path and resource. Module path tokens come in pairs "module.NAME".
+    // Walk tokens from start; once we see a non-"module" token, the rest is the resource.
+    const toks = tokenizeRef(addr);
+    let i = 0;
+    while (toks[i] === 'module') i += 2;
+    if (i === 0) return ['', addr];
+    const prefixToks = toks.slice(0, i);
+    const restToks = toks.slice(i);
+    return [prefixToks.join('.') + '.', restToks.join('.')];
+  }
+
+  function buildSvg(layout) {
+    const svg = svgEl('svg', { xmlns: SVG_NS, width: '100%', height: '100%' });
+    const defs = svgEl('defs');
+    defs.appendChild(svgEl('marker', {
+      id: 'g-arrow', viewBox: '0 0 10 10', refX: '9', refY: '5',
+      markerWidth: '6', markerHeight: '6', orient: 'auto-start-reverse',
+    }, [svgEl('path', { d: 'M0,0 L10,5 L0,10 z', fill: '#555' })]));
+    svg.appendChild(defs);
+
+    const inner = svgEl('g', { id: 'graph-inner' });
+    svg.appendChild(inner);
+
+    // edges first so they render below nodes
+    const edgesG = svgEl('g', { class: 'edges' });
+    inner.appendChild(edgesG);
+    for (const e of layout.edges) {
+      const a = layout.pos.get(e.from), b = layout.pos.get(e.to);
+      if (!a || !b) continue;
+      const sx = a.x + layout.NODE_W / 2, sy = a.y;
+      const tx = b.x + layout.NODE_W / 2, ty = b.y + layout.NODE_H;
+      // Edge from source TOP to target BOTTOM (deps are above dependents).
+      const my = (sy + ty) / 2;
+      const d = `M ${sx} ${sy} C ${sx} ${my}, ${tx} ${my}, ${tx} ${ty}`;
+      const path = svgEl('path', {
+        class: 'gedge' + (e.cyclic ? ' cyclic' : ''),
+        d,
+        'marker-end': 'url(#g-arrow)',
+        'data-from': e.from,
+        'data-to': e.to,
+      });
+      edgesG.appendChild(path);
+    }
+
+    const nodesG = svgEl('g', { class: 'nodes' });
+    inner.appendChild(nodesG);
+    for (const addr of layout.nodes) {
+      const p = layout.pos.get(addr);
+      if (!p) continue;
+      const cls = actionClassFor(addr);
+      const fill = `var(--act-${cls})`;
+      const g = svgEl('g', {
+        class: 'gnode' + (selectedAddress === addr ? ' selected' : ''),
+        transform: `translate(${p.x} ${p.y})`,
+        'data-addr': addr,
+        on: {
+          click: () => {
+            selectedAddress = addr;
+            detailTab = 'diff';
+            view = 'list';
+            applyView();
+            renderList();
+            renderDetail();
+            const sel = document.querySelector('.res-row.selected');
+            if (sel) sel.scrollIntoView({ block: 'center' });
+          },
+          mouseenter: () => { graphHover = addr; applyHover(); },
+          mouseleave: () => { graphHover = null; applyHover(); },
+        }
+      });
+      g.appendChild(svgEl('rect', {
+        width: layout.NODE_W, height: layout.NODE_H,
+        rx: 4, ry: 4,
+        fill, 'fill-opacity': '0.18',
+        stroke: fill, 'stroke-opacity': '0.85',
+      }));
+      const [pre, rest] = splitModulePrefix(addr);
+      const fullLabel = addr;
+      const maxLen = 32;
+      const label = fullLabel.length > maxLen ? '…' + fullLabel.slice(-maxLen + 1) : fullLabel;
+      const text = svgEl('text', { x: 10, y: layout.NODE_H / 2 + 4 });
+      if (pre) {
+        // Compute how much of pre vs rest survives the truncation
+        if (label === fullLabel) {
+          text.appendChild(svgEl('tspan', { class: 'gmod' }, [pre]));
+          text.appendChild(svgEl('tspan', {}, [rest]));
+        } else {
+          text.appendChild(svgEl('tspan', {}, [label]));
+        }
+      } else {
+        text.appendChild(svgEl('tspan', {}, [label]));
+      }
+      g.appendChild(text);
+      g.appendChild(svgEl('title', {}, [addr]));
+      nodesG.appendChild(g);
+    }
+    return svg;
+  }
+
+  function renderGraph() {
+    const root = document.getElementById('graph-canvas');
+    root.innerHTML = '';
+    if (!plan) {
+      root.appendChild(el('div', { class: 'graph-empty' }, ['Load a plan first.']));
+      return;
+    }
+    if (!plan.configuration || !plan.configuration.root_module) {
+      const msg = el('div', { class: 'graph-empty' }, []);
+      msg.appendChild(document.createTextNode('No '));
+      msg.appendChild(el('code', {}, ['configuration']));
+      msg.appendChild(document.createTextNode(' section in this plan.'));
+      msg.appendChild(el('br'));
+      msg.appendChild(document.createTextNode('Re-export with '));
+      msg.appendChild(el('code', {}, ['terraform show -json tfplan > plan.json']));
+      msg.appendChild(document.createTextNode(' from a working directory that contains the source HCL.'));
+      root.appendChild(msg);
+      document.getElementById('g-hint').textContent = '';
+      return;
+    }
+    if (!graphLayout) graphLayout = computeLayout();
+    if (!graphLayout || graphLayout.nodes.length === 0) {
+      root.appendChild(el('div', { class: 'graph-empty' }, ['No resources to graph.']));
+      document.getElementById('g-hint').textContent = '';
+      return;
+    }
+    root.appendChild(buildSvg(graphLayout));
+
+    const hintParts = [
+      `${graphLayout.nodes.length} resource${graphLayout.nodes.length === 1 ? '' : 's'}`,
+      `${graphLayout.edges.length} edge${graphLayout.edges.length === 1 ? '' : 's'}`,
+    ];
+    if (graphLayout.cycleCount) hintParts.push(`${graphLayout.cycleCount} cycle${graphLayout.cycleCount === 1 ? '' : 's'}`);
+    document.getElementById('g-hint').textContent = hintParts.join(' · ');
+
+    // First show: fit. Otherwise preserve current transform.
+    if (graphTransform.k === 1 && graphTransform.x === 0 && graphTransform.y === 0) {
+      fitToViewport();
+    } else {
+      applyTransform();
+    }
+    applyGraphFilters();
+  }
+
+  function applyTransform() {
+    const g = document.getElementById('graph-inner');
+    if (!g) return;
+    g.setAttribute('transform',
+      `translate(${graphTransform.x} ${graphTransform.y}) scale(${graphTransform.k})`);
+  }
+
+  function fitToViewport() {
+    if (!graphLayout) return;
+    const canvas = document.getElementById('graph-canvas');
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      graphTransform = { x: 0, y: 0, k: 1 };
+      applyTransform();
+      return;
+    }
+    const pad = 40;
+    const k = Math.max(0.1, Math.min(
+      (rect.width - pad * 2) / Math.max(1, graphLayout.width),
+      (rect.height - pad * 2) / Math.max(1, graphLayout.height),
+      1.5
+    ));
+    graphTransform.k = k;
+    graphTransform.x = rect.width / 2 - (graphLayout.minX + graphLayout.width / 2) * k;
+    graphTransform.y = rect.height / 2 - graphLayout.height / 2 * k;
+    applyTransform();
+  }
+
+  function applyHover() {
+    if (!graphLayout) return;
+    const inSet = new Set(), outSet = new Set();
+    if (graphHover) {
+      for (const e of graphLayout.edges) {
+        if (e.from === graphHover) outSet.add(e.to);
+        if (e.to === graphHover) inSet.add(e.from);
+      }
+    }
+    const visibleAddrs = view === 'graph' ? new Set(visibleResources().map(rc => rc.address)) : null;
+    document.querySelectorAll('.gnode').forEach(n => {
+      const a = n.dataset.addr;
+      const filteredOut = visibleAddrs ? !visibleAddrs.has(a) : false;
+      const hovered = graphHover === a;
+      const neighbour = inSet.has(a) || outSet.has(a);
+      n.classList.toggle('dim', filteredOut || (graphHover && !hovered && !neighbour));
+      n.classList.toggle('selected', a === selectedAddress);
+    });
+    document.querySelectorAll('.gedge').forEach(p => {
+      const from = p.dataset.from, to = p.dataset.to;
+      const filtered = visibleAddrs && (!visibleAddrs.has(from) || !visibleAddrs.has(to));
+      p.classList.toggle('in', !filtered && graphHover && to === graphHover);
+      p.classList.toggle('out', !filtered && graphHover && from === graphHover);
+      p.classList.toggle('dim', filtered || (graphHover && from !== graphHover && to !== graphHover));
+    });
+  }
+
+  function applyGraphFilters() {
+    if (view !== 'graph' || !graphLayout) return;
+    applyHover();
+  }
+
+  // pan/zoom wiring
+  (() => {
+    const canvas = document.getElementById('graph-canvas');
+    canvas.addEventListener('wheel', (e) => {
+      if (view !== 'graph' || !graphLayout) return;
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      const k0 = graphTransform.k;
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      const k1 = Math.max(0.1, Math.min(4, k0 * factor));
+      graphTransform.x = cx - (cx - graphTransform.x) * (k1 / k0);
+      graphTransform.y = cy - (cy - graphTransform.y) * (k1 / k0);
+      graphTransform.k = k1;
+      applyTransform();
+    }, { passive: false });
+
+    let pan = null;
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest('.gnode')) return;
+      pan = { sx: e.clientX, sy: e.clientY, ox: graphTransform.x, oy: graphTransform.y };
+      canvas.classList.add('panning');
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (!pan) return;
+      graphTransform.x = pan.ox + (e.clientX - pan.sx);
+      graphTransform.y = pan.oy + (e.clientY - pan.sy);
+      applyTransform();
+    });
+    window.addEventListener('mouseup', () => {
+      if (!pan) return;
+      pan = null;
+      canvas.classList.remove('panning');
+    });
+  })();
+
+  document.getElementById('btn-view').addEventListener('click', () => {
+    if (!plan) return;
+    view = view === 'list' ? 'graph' : 'list';
+    applyView();
+  });
+  document.getElementById('g-fit').addEventListener('click', () => {
+    if (graphLayout) fitToViewport();
+  });
+  document.getElementById('g-reset').addEventListener('click', () => {
+    graphTransform = { x: 0, y: 0, k: 1 };
+    fitToViewport();
   });
 
   render();
